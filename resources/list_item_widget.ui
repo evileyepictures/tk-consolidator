@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>366</width>
-    <height>109</height>
+    <width>426</width>
+    <height>120</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -39,21 +39,24 @@
        <widget class="QLabel" name="thumbnail">
         <property name="minimumSize">
          <size>
-          <width>96</width>
-          <height>75</height>
+          <width>35</width>
+          <height>35</height>
          </size>
         </property>
         <property name="maximumSize">
          <size>
-          <width>96</width>
+          <width>75</width>
           <height>75</height>
          </size>
+        </property>
+        <property name="frameShape">
+         <enum>QFrame::NoFrame</enum>
         </property>
         <property name="text">
          <string/>
         </property>
         <property name="pixmap">
-         <pixmap>:/tk_multi_infopanel/rect_512x400.png</pixmap>
+         <pixmap resource="resources.qrc">:/res/sg_logo.png</pixmap>
         </property>
         <property name="scaledContents">
          <bool>true</bool>
@@ -72,14 +75,26 @@
          </sizepolicy>
         </property>
         <property name="text">
-         <string>Body text
-hello</string>
+         <string>Title: To Vendor</string>
         </property>
         <property name="alignment">
-         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="package_btn">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>Package</string>
         </property>
        </widget>
       </item>

@@ -72,17 +72,21 @@ class ListItemDelegate(shotgun_view.WidgetDelegate):
         :param style_options: QT style options
         """
         icon = shotgun_model.get_sanitized_data(model_index, QtCore.Qt.DecorationRole)
+
         # create a thumbnail from the Shotgun icon
-        if icon:
-            thumb = icon.pixmap(512)
-            widget.set_thumbnail(thumb)
+        # XXX (Kirill): Disable for now since not working properly
+        # if icon:
+        #     thumb = icon.pixmap(512)
+        #     widget.set_thumbnail(thumb)
 
         # get the shotgun data
         sg_item = shotgun_model.get_sg_data(model_index)
 
+        widget.sg_id = sg_item['id']
+
         # fill the content of the widget with the data of the loaded Shotgun
         # item
-        widget.set_text(str(sg_item))
+        widget.set_text('Title: %s\nID: %s' % (sg_item['title'], sg_item['id']))
 
 
     def sizeHint(self, style_options, model_index):

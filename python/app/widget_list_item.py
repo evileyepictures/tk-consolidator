@@ -55,7 +55,13 @@ class ListItemWidget(QtGui.QWidget):
             }
             """
 
+        self.sg_id = ''
 
+
+        self.ui.package_btn.clicked.connect(self.package)
+
+    def package(self):
+        print '[D] Packaging delivery with id %s' % self.sg_id
 
     def set_selected(self, selected):
         """
@@ -90,6 +96,12 @@ class ListItemWidget(QtGui.QWidget):
 
         :returns: Size of the widget
         """
-        return QtCore.QSize(300, 102)
+        return QtCore.QSize(200, 100)
 
-
+    def contextMenuEvent(self, event):
+        menu = QtGui.QMenu(self)
+        test_action = menu.addAction("Test")
+        action = menu.exec_(self.mapToGlobal(event.pos()))
+        if action == test_action:
+            print '[D] SG_ID: ', self.sg_id
+            print '[D] HI!'

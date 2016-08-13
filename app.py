@@ -10,6 +10,7 @@
 
 
 from sgtk.platform import Application
+import argparse
 
 class StgkStarterApp(Application):
     """
@@ -34,7 +35,9 @@ class StgkStarterApp(Application):
 
         # first, set up our callback, calling out to a method inside the app module contained
         # in the python folder of the app
-        menu_callback = lambda : app_payload.dialog.show_dialog(self)
+        menu_ui_callback = lambda : app_payload.dialog.show_dialog(self)
+        menu_callback = lambda *args : app_payload.consolidator.run(self, *args)
 
         # now register the command with the engine
         self.engine.register_command("consolidator", menu_callback)
+        self.engine.register_command("consolidator_ui", menu_ui_callback)
