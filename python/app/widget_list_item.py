@@ -57,7 +57,6 @@ class ListItemWidget(QtGui.QWidget):
 
         self.sg_id = ''
 
-
         self.ui.package_btn.clicked.connect(self.package)
 
     def package(self):

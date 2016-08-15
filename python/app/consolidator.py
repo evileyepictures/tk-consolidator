@@ -7,12 +7,12 @@ log = Logger()
 
 class Delivery(object):
 
-    def __init__(self, app, sg_id):
-        self._app = app
-        self.sg = self._app.shotgun
+    def __init__(self, sg_instance, sg_id):
+
+        self.sg = sg_instance
 
         self.sg_entity_type = 'Delivery'
-        self.sg_fields = ['sg_versions', 'sg_delivery_type']
+        self.sg_fields = ['sg_versions', 'sg_delivery_type', 'title']
 
         self.id = int(sg_id)
         self.sg_data = self._get_data()
@@ -22,23 +22,46 @@ class Delivery(object):
         sg_delivery = self.sg.find_one(self.sg_entity_type, [
             ['id', 'is', self.id]], self.sg_fields
         )
+
+        for f in self.sg_fields:
+            if f in sg_delivery:
+                continue
+            raise Exception('Delivery dosn not have required field %s' % f)
+
         return sg_delivery
+
+    def get_field(self, field_name):
+        data = self.sg_data.get(field_name)
+
+        if data == None:
+            raise Exception(
+                '%s is not specified on Shotgun for Delivery entity with id %s'
+                % (field_name, self.sg_data['id'])
+            )
+
+        if len(data) == 0:
+            raise Exception(
+                'The required field %s is not populated on Shotgun!'
+                % field_name
+            )
+
+        return data
 
     @property
     def type(self):
-        delivery_type = self.sg_data.get('sg_delivery_type')
+        field_name = 'sg_delivery_type'
+        delivery_type = self.get_field(field_name)
         return delivery_type
+
+    @property
+    def title(self):
+        title = self.sg_data.get('title')
+        return title
 
     def get_versions(self):
 
-        delivery_versions = self.sg_data.get('sg_versions')
-
-        if delivery_versions == None:
-            log.warning('Delivery has no sg_versions field')
-            return []
-        if len(delivery_versions) == 0:
-            log.warning('No versions attached to this delivery')
-            return []
+        field_name = 'sg_versions'
+        attached_delivery_versions = self.get_field(field_name)
 
         # Because we need to retrive some extra fields for each delivery
         # we need to perform an extra quiry to Shotgun
@@ -47,38 +70,24 @@ class Delivery(object):
         # all versions attached to this delivery at once. See more here:
         # https://github.com/shotgunsoftware/python-api/wiki/Reference%3A-Filter-Syntax
         version_filters = []
-        for v in self.sg_data['sg_versions']:
+        for v in attached_delivery_versions:
             version_filters.append([ "id", "is", v['id']])
         filters = [
             {"filter_operator": "any", "filters": version_filters}
         ]
 
-        delivery_versions = self.sg.find("Version", filters, ['sg_path_to_frames'])
+        delivery_versions = self.sg.find("Version", filters, ['sg_path_to_frames', 'code'])
 
         return delivery_versions
 
 class Consolidator(object):
 
-    def __init__(self, app, args):
-
-        self._args = self._parse_arguments(args)
+    def __init__(self, app, sg_delivery):
 
         self._app = app
         self.sg = self._app.shotgun
         self.tk = self._app.tank
-
-    def _parse_arguments(self, args):
-        parser = argparse.ArgumentParser(description="App to export data for client delivery")
-
-        parser.add_argument(
-            '-id',
-            required=True,
-            help='run in ui mode',
-        )
-
-        args = parser.parse_args(args=args)
-
-        return args
+        self.sg_delivery = sg_delivery
 
     def _find_sequence_range(self, path):
         """
@@ -122,19 +131,19 @@ class Consolidator(object):
         return (min(frames), max(frames))
 
     def run(self):
-        log.debug('Running the consolidator for Delivery id ', self._args.id)
 
-        # template = self._app.get_template('')
+        log.debug('Running the consolidator for Delivery id ', self.sg_delivery.id)
+
+        # Get all delivery types listed in the project configuration
         delivery_types = self._app.get_setting("delivery_types", [])
 
-        sg_delivery = Delivery(self._app, self._args.id)
-
-        delivery_versions = sg_delivery.get_versions()
+        # Get all of the Shotgun versions attached to this delivery
+        delivery_versions = self.sg_delivery.get_versions()
 
         # Get configuration for the dilivery type
         delivery_settings = {}
         for t in delivery_types:
-            if t['name'] != sg_delivery.type:
+            if t['name'] != self.sg_delivery.type:
                 continue
             delivery_settings = t
 
@@ -147,24 +156,59 @@ class Consolidator(object):
 
         # Now we have all of the version it is time to proccess it
         for v in delivery_versions:
+
+            log.line()
+            log.info('Processing version %s with id %s' % (v['code'], v['id']))
+
             path_to_frames = v.get('sg_path_to_frames')
-            log.debug('Path to frames: %s' % path_to_frames)
 
-            asset = asset_from_path(path_to_frames)
+            # Check if this version have path to frames
+            if path_to_frames is not None:
 
-            # Check if any of the existing template can be applied to this path
-            source_template = self.tk.template_from_path(path_to_frames)
-            # Extract fields from current path
-            fields = source_template.get_fields(path_to_frames)
-            # Buid the new path
-            delivery_path = delivery_template.apply_fields(fields)
+                asset = asset_from_path(path_to_frames)
 
-            import pdb; pdb.set_trace()
+                # Check if any of the existing template can be applied to this path
+                source_template = self.tk.template_from_path(path_to_frames)
+                # Extract fields from current path
+                fields = source_template.get_fields(path_to_frames)
+                # Buid the new path base on the delivery template
+                delivery_path = delivery_template.apply_fields(fields)
 
-            # We need to form each path to corresponding delivery template
-            # for the specific vendor
+                # Copy asset to delivery location
+                asset.copy(delivery_path)
+
+            else:
+                log.warning(
+                    'Version %s does not have any sequences attached to it. Skipping!'
+                    % v['code']
+                )
+
+            # Do something else with the version or it attributes
             #
 
+        log.success('Consolidation of "%s" delivery completed' % self.sg_delivery.title)
+
+
+def parse_arguments(args):
+    parser = argparse.ArgumentParser(description="App to export data for client delivery")
+
+    parser.add_argument(
+        '-id',
+        required=True,
+        help='run in ui mode',
+    )
+
+    args = parser.parse_args(args=args)
+
+    return args
+
+
 def run(app, *args):
-    c = Consolidator(app, args)
+
+    app_args = parse_arguments(args)
+
+    # Create Delivery object that represent a single dilivery item on SG
+    sg_delivery = Delivery(app.shotgun, app_args.id)
+
+    c = Consolidator(app, sg_delivery)
     c.run()
