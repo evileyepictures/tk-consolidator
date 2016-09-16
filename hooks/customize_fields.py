@@ -1,6 +1,4 @@
-import sgtk
 from sgtk import Hook
-from sgtk import TankError
 
 class CustomizeFields(Hook):
     """

@@ -16,11 +16,9 @@ class Delivery(object):
 
     def __init__(self, sg_instance, sg_id):
 
-        # NOTE(Kirill): This dependency is not desirable here
+        # NOTE(Kirill): self._app dependency is not desirable here
         self._app = sgtk.platform.current_bundle()
-
         self.sg = sg_instance
-
         self.sg_entity_type = 'Delivery'
 
         # Delivery fields that will be fetched from Shotgun
@@ -303,7 +301,7 @@ class Consolidator(object):
                 continue
             filtered_assets.append(asset)
         delivery_assets = filtered_assets
-        
+
         import pdb; pdb.set_trace()
 
         for asset in delivery_assets:
@@ -348,7 +346,7 @@ class Consolidator(object):
                 )
 
             # Before passing this fields to the path constructor
-            # run a user definded hook to do custom manipulations with the fields
+            # run a user defined hook to do custom manipulations with the fields
             # This allows for custom per delivery type name customization
             fields = self._app.execute_hook_method(
                 'hook_customize_fields', 'execute',
