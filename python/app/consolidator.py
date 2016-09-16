@@ -7,6 +7,7 @@ import sgtk
 
 log = Logger()
 
+
 class Delivery(object):
     """
     This class represent Shotgun Delivery entity. It provide access to most
@@ -49,7 +50,7 @@ class Delivery(object):
     def get_field(self, field_name):
         data = self.sg_data.get(field_name)
 
-        if data == None:
+        if data is None:
             raise Exception(
                 '%s is not specified on Shotgun for Delivery entity with id %s'
                 % (field_name, self.sg_data['id'])
@@ -85,7 +86,7 @@ class Delivery(object):
         # https://github.com/shotgunsoftware/python-api/wiki/Reference%3A-Filter-Syntax
         version_filters = []
         for v in attached_delivery_versions:
-            version_filters.append([ "id", "is", v['id']])
+            version_filters.append(["id", "is", v['id']])
         filters = [
             {"filter_operator": "any", "filters": version_filters}
         ]
@@ -104,7 +105,7 @@ class Delivery(object):
 
         filters = []
         for p in attached_delivery_published_files:
-            filters.append([ "id", "is", p['id']])
+            filters.append(["id", "is", p['id']])
         filters = [
             {"filter_operator": "any", "filters": filters}
         ]
@@ -302,8 +303,6 @@ class Consolidator(object):
             filtered_assets.append(asset)
         delivery_assets = filtered_assets
 
-        import pdb; pdb.set_trace()
-
         for asset in delivery_assets:
             # Check if any of the existing template can be applied to this path
             source_template = self.tk.template_from_path(str(asset.path))
@@ -365,7 +364,7 @@ class Consolidator(object):
                     'Skipping %s. '
                     'Delivery asset type "%s" does not match '
                     'destination type "%s" defined by the template.'
-                    %(asset.name, asset.extension, dest_ext))
+                    % (asset.name, asset.extension, dest_ext))
                 continue
 
             # Copy asset to delivery location
@@ -375,19 +374,19 @@ class Consolidator(object):
 
 
 def parse_arguments(args):
-    parser = argparse.ArgumentParser(description="App to export data for client delivery")
 
+    parser = argparse.ArgumentParser(
+        description="App to export data for client delivery"
+    )
     parser.add_argument(
         '-id',
         required=True,
         help='run in ui mode',
     )
-
     parser.add_argument(
         '-sg_type_filter', '-stf', nargs='+',
         help='exclude assets from processing by its shotgun entity type',
     )
-
     parser.add_argument(
         '-extension_filter', '-ef', nargs='+',
         help='exclude assets from processing by its extension',
