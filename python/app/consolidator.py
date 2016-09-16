@@ -1,4 +1,5 @@
 import os
+import re
 import argparse
 from logger import Logger
 from asset import asset_from_path
@@ -34,11 +35,19 @@ class Delivery(object):
         self.id = int(sg_id)
         self.sg_data = self._get_data()
 
+        self.all_finaled_versions = self._get_all_finaled_versions()
+
+        self.__versions = []
+        self.__published_files = []
+
     def _get_data(self):
-        # Get specified delivery by ID with all the versions attached
-        sg_delivery = self.sg.find_one(self.sg_entity_type, [
-            ['id', 'is', self.id]], self.sg_fields
-        )
+        """ Get specified delivery by ID with all the versions attached """
+
+        filters = [
+            ['project', 'is', self._app.context.project],
+            ['id', 'is', self.id]
+        ]
+        sg_delivery = self.sg.find_one(self.sg_entity_type, filters, self.sg_fields)
 
         for f in self.sg_fields:
             if f in sg_delivery:
@@ -47,7 +56,67 @@ class Delivery(object):
 
         return sg_delivery
 
+    def _get_all_finaled_versions(self):
+        """
+        Get all versions that have final_status value in the status field
+
+        :return: Dictionary of shotgun Version grouped by its entity id like
+            {
+                2414: {
+                    'sg_status_list': eepfin,
+                    'eepfin', 'code': 'Sub0150 comp comp v029 pjpeg',
+                    'type': 'Version',
+                    'id': 7550
+                },
+                2341: ...
+            }
+        """
+        final_status = 'eepfin'
+        filters = [
+            ['project', 'is', self._app.context.project],
+            ['sg_status_list', 'is', final_status]
+        ]
+        fields = ['code', 'sg_status_list', 'entity']
+        versions = self.sg.find('Version', filters, fields)
+
+        # Group finaled versions by its entity ID
+        v_by_entity_id = {}
+        for v in versions:
+            entity_id = v['entity']['id']
+            del v['entity']
+            v_by_entity_id[entity_id] = v
+
+        return v_by_entity_id
+
+    def _normalize_path(self, path):
+        """
+        Because Shotgun Versions can only store OS specific paths to files
+        we need to make sure that those path are converted.
+        For example if current OS is Mac but the Version was created
+        on Windows the file path will be Windows specific. This function make
+        sure that the path is converted to the current OS.
+        """
+        conf = self._app.tank.pipeline_configuration
+        project_name = conf.get_project_disk_name()
+
+        # XXX: _roots is the private method, I should not really use it
+        # However the alternative would be to read the roots yaml manualy
+        for os_name, root in conf._roots['primary'].items():
+            proj_root = os.path.join(root, project_name)
+            proj_root = proj_root.replace('\\', '/')
+            path = path.replace(proj_root, self._app.tank.project_path)
+
+        path = os.path.abspath(path)
+
+        return path
+
     def get_field(self, field_name):
+        """
+        Utility methond to get a value of SG field of this delivery
+        Note: this only works with pre cached values by this class.
+        If you need to etend this list adde your value to self.sg_fields that
+        it will make it available via this method without making a call to SG
+        """
         data = self.sg_data.get(field_name)
 
         if data is None:
@@ -70,12 +139,18 @@ class Delivery(object):
         return title
 
     def get_versions(self):
+        """
+        Get full information for every Version attached to this delivery
+        """
+
+        if self.__versions:
+            return self.__versions
 
         field_name = 'sg_versions'
-        attached_delivery_versions = self.get_field(field_name)
+        attached_dl_vers = self.get_field(field_name)
 
         # If no versions attached to this delivery
-        if not attached_delivery_versions:
+        if not attached_dl_vers:
             return []
 
         # Because we need to retrieve some extra fields for each delivery
@@ -85,59 +160,51 @@ class Delivery(object):
         # all versions attached to this delivery at once. See more here:
         # https://github.com/shotgunsoftware/python-api/wiki/Reference%3A-Filter-Syntax
         version_filters = []
-        for v in attached_delivery_versions:
-            version_filters.append(["id", "is", v['id']])
+        for v in attached_dl_vers:
+            version_filters.append(['id', 'is', v['id']])
+
         filters = [
-            {"filter_operator": "any", "filters": version_filters}
+            {'filter_operator': 'any', 'filters': version_filters}
         ]
-        fields = ['sg_path_to_frames', 'sg_path_to_movie', 'code']
-        delivery_versions = self.sg.find("Version", filters, fields)
+        fields = ['sg_path_to_frames', 'sg_path_to_movie', 'code', 'entity']
+        delivery_versions = self.sg.find('Version', filters, fields)
+
+        self.__versions = delivery_versions
 
         return delivery_versions
 
     def get_published_files(self):
 
-        field_name = 'published_file_sg_delivery_published_files'
-        attached_delivery_published_files = self.get_field(field_name)
+        if self.__published_files:
+            return self.__published_files
 
-        if not attached_delivery_published_files:
+        field_name = 'published_file_sg_delivery_published_files'
+        attached_dl_published_files = self.get_field(field_name)
+
+        if not attached_dl_published_files:
             return []
 
         filters = []
-        for p in attached_delivery_published_files:
+        for p in attached_dl_published_files:
             filters.append(["id", "is", p['id']])
-        filters = [
-            {"filter_operator": "any", "filters": filters}
-        ]
 
-        delivery_publishes = self.sg.find("PublishedFile", filters, ['path', 'code'])
+        filters = [
+            {'filter_operator': 'any', 'filters': filters}
+        ]
+        fields = ['path', 'code', 'entity']
+        delivery_publishes = self.sg.find('PublishedFile', filters, fields)
+
+        self.__published_files = delivery_publishes
 
         return delivery_publishes
 
-    def _normalize_path(self, path):
-        """
-        Because Shotgun Versions can only store OS specific paths to files
-        we need to make sure that those path are converted.
-        For example if current OS is Mac but the Version was created
-        on Windows the file path will be Windows specific. This function make
-        sure that the path is converted to the current OS.
-        """
-        conf = self._app.tank.pipeline_configuration
-        project_name = conf.get_project_disk_name()
-
-        for os_name, root in conf._roots['primary'].items():
-            proj_root = os.path.join(root, project_name)
-            proj_root = proj_root.replace('\\', '/')
-            path = path.replace(proj_root, self._app.tank.project_path)
-
-        path = os.path.abspath(path)
-
-        return path
-
     def get_assets(self):
+        """
+        Get complete list of asset that need to be processed for this delivery
+        """
 
-        delivery_assets = []
-        delivery_paths = []
+        dl_assets = []  # Final delivery assets
+        delivery_paths = []  # To track duplicated paths
 
         # Get all of the Shotgun versions attached to this delivery
         delivery_versions = self.get_versions()
@@ -163,8 +230,12 @@ class Delivery(object):
                 continue
 
             asset = asset_from_path(path_to_asset)
+
+            fin_version = self.all_finaled_versions.get(v['entity']['id'])
+            asset.extra_attrs['final_version'] = fin_version
+
             asset.sg_data = v
-            delivery_assets.append(asset)
+            dl_assets.append(asset)
             delivery_paths.append(path_to_asset)
 
         # Process versions mov
@@ -181,11 +252,15 @@ class Delivery(object):
                 continue
 
             asset = asset_from_path(path_to_asset)
+
+            fin_version = self.all_finaled_versions.get(v['entity']['id'])
+            asset.extra_attrs['final_version'] = fin_version
+
             asset.sg_data = v
-            delivery_assets.append(asset)
+            dl_assets.append(asset)
             delivery_paths.append(path_to_asset)
 
-        # Process Published Files that attached to this delivery
+        # Process PublishedFiles
         for p in delivery_publihes:
 
             ppath = p.get('path', {})
@@ -193,7 +268,10 @@ class Delivery(object):
             if ppath:
                 local_path = ppath.get('local_path', '')
             else:
-                log.warning('%s published file does not have any path attached' % p['code'])
+                log.warning(
+                    '%s published file does not have any path attached'
+                    % p['code']
+                )
                 continue
 
             if not local_path:
@@ -204,14 +282,22 @@ class Delivery(object):
                 continue
 
             asset = asset_from_path(local_path)
+
+            fin_version = self.all_finaled_versions.get(v['entity']['id'])
+            asset.extra_attrs['final_version'] = fin_version
+
             asset.sg_data = p
-            delivery_assets.append(asset)
+            dl_assets.append(asset)
             delivery_paths.append(local_path)
 
-        return delivery_assets
+        return dl_assets
 
 
 class Consolidator(object):
+    """
+    This is main application class. It should not include any logic that deal
+    with shotgun api or make any calls to SG site
+    """
 
     def __init__(self, app, sg_delivery, options):
 
@@ -272,28 +358,53 @@ class Consolidator(object):
         # return the range
         return (min(frames), max(frames))
 
+    def get_final_version(self, asset):
+        """
+        According to EEP bussines logic the final delivery version should
+        always mathch the version that has the status 'eepfin' on Shotgun.
+        If this function failed to acquire the final version it will fall back
+        to the asset version.
+        """
+        try:
+            fin_ver_code = asset.extra_attrs['final_version']['code']
+        except KeyError as e:
+            log.warning(
+                'Failed to retrive eep final version from asset %s. %s'
+                % (asset.name, e)
+            )
+            return int(asset.version)
+
+        result = re.search(r'(v)([0-9]+)', fin_ver_code)
+        if result:
+            return int(result.groups()[1])
+        else:
+            return int(asset.version)
+
     def run(self):
+        """
+        Then app run in cmd mode this function gets run
+        """
 
         log.info('Consolidating ', self.sg_delivery.title)
 
         # Get all delivery types listed in the project configuration
-        delivery_types = self._app.get_setting("delivery_types", [])
+        dl_types = self._app.get_setting("delivery_types", [])
 
         # Get configuration for the delivery type
-        delivery_settings = {}
-        for t in delivery_types:
+        dl_settings = {}
+        for t in dl_types:
             if t['name'] != self.sg_delivery.type:
                 continue
-            delivery_settings = t
+            dl_settings = t
 
         # Gather all of the assets attached to this delivery
-        delivery_assets = self.sg_delivery.get_assets()
+        dl_assets = self.sg_delivery.get_assets()
         delivery_due_date = self.sg_delivery.get_field('sg_due_date')
         due_year, due_month, due_day = [int(i) for i in delivery_due_date.split('-')]
 
         # Asset filtering logic
         filtered_assets = []
-        for asset in delivery_assets:
+        for asset in dl_assets:
             # Exclude asset by its shotgun file type specified in the filter
             if asset.sg_data['type'] in self.sg_type_filter:
                 continue
@@ -301,17 +412,21 @@ class Consolidator(object):
             if asset.extension in self.ext_filter:
                 continue
             filtered_assets.append(asset)
-        delivery_assets = filtered_assets
+        dl_assets = filtered_assets
 
-        for asset in delivery_assets:
+        for asset in dl_assets:
+
             # Check if any of the existing template can be applied to this path
             source_template = self.tk.template_from_path(str(asset.path))
             # Extract fields from current path
             fields = source_template.get_fields(str(asset.path))
 
+            final_version = self.get_final_version(asset)
+
             # Added extra fields that might be required by the template
             fields.update({
                 'delivery_title': self.sg_delivery.title,
+                'version': final_version,
                 'height': asset.height,
                 'width': asset.width,
                 'YYYY': due_year,
@@ -327,21 +442,21 @@ class Consolidator(object):
             # Get our final delivery template base on the asset type
             if asset.type == 'ImageSequence':
                 if 'output' in fields:
-                    delivery_template_name = delivery_settings['matte_delivery_template']
+                    dl_template_name = dl_settings['matte_delivery_template']
                 else:
-                    delivery_template_name = delivery_settings['dpx_delivery_template']
+                    dl_template_name = dl_settings['dpx_delivery_template']
 
             elif asset.type == 'VideoFile':
-                delivery_template_name = delivery_settings['mov_delivery_template']
+                dl_template_name = dl_settings['mov_delivery_template']
             else:
                 log.error('Asset type %s is not supported!' % asset.type)
 
-            delivery_template = self._app.get_template_by_name(delivery_template_name)
+            dl_template = self._app.get_template_by_name(dl_template_name)
 
-            if delivery_template is None:
+            if dl_template is None:
                 log.error(
                     'Failed to retrieve value for the template name: %s'
-                    % delivery_template_name
+                    % dl_template_name
                 )
 
             # Before passing this fields to the path constructor
@@ -353,7 +468,7 @@ class Consolidator(object):
             )
 
             # Build the new path base on the delivery template
-            delivery_path = delivery_template.apply_fields(fields)
+            delivery_path = dl_template.apply_fields(fields)
 
             # Do some integrity checks
             #
@@ -370,7 +485,10 @@ class Consolidator(object):
             # Copy asset to delivery location
             asset.copy(delivery_path)
 
-        log.success('Consolidation of "%s" delivery completed' % self.sg_delivery.title)
+        log.success(
+            'Consolidation of "%s" delivery completed'
+            % self.sg_delivery.title
+        )
 
 
 def parse_arguments(args):
