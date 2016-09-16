@@ -3,6 +3,7 @@ import argparse
 from logger import Logger
 from asset import asset_from_path
 from tank.errors import TankError
+import sgtk
 
 log = Logger()
 
@@ -14,6 +15,9 @@ class Delivery(object):
     """
 
     def __init__(self, sg_instance, sg_id):
+
+        # NOTE(Kirill): This dependency is not desirable here
+        self._app = sgtk.platform.current_bundle()
 
         self.sg = sg_instance
 
@@ -87,8 +91,8 @@ class Delivery(object):
         filters = [
             {"filter_operator": "any", "filters": version_filters}
         ]
-
-        delivery_versions = self.sg.find("Version", filters, ['sg_path_to_frames', 'code'])
+        fields = ['sg_path_to_frames', 'sg_path_to_movie', 'code']
+        delivery_versions = self.sg.find("Version", filters, fields)
 
         return delivery_versions
 
@@ -96,6 +100,9 @@ class Delivery(object):
 
         field_name = 'published_file_sg_delivery_published_files'
         attached_delivery_published_files = self.get_field(field_name)
+
+        if not attached_delivery_published_files:
+            return []
 
         filters = []
         for p in attached_delivery_published_files:
@@ -108,28 +115,80 @@ class Delivery(object):
 
         return delivery_publishes
 
+    def _normalize_path(self, path):
+        """
+        Because Shotgun Versions can only store OS specific paths to files
+        we need to make sure that those path are converted.
+        For example if current OS is Mac but the Version was created
+        on Windows the file path will be Windows specific. This function make
+        sure that the path is converted to the current OS.
+        """
+        conf = self._app.tank.pipeline_configuration
+        project_name = conf.get_project_disk_name()
+
+        for os_name, root in conf._roots['primary'].items():
+            proj_root = os.path.join(root, project_name)
+            proj_root = proj_root.replace('\\', '/')
+            path = path.replace(proj_root, self._app.tank.project_path)
+
+        path = os.path.abspath(path)
+
+        return path
+
     def get_assets(self):
 
         delivery_assets = []
+        delivery_paths = []
 
         # Get all of the Shotgun versions attached to this delivery
         delivery_versions = self.get_versions()
-        # Get all of the Shotgun PublishedFiles attached to this delivery
+        # Get publishes that attached to this delivery
         delivery_publihes = self.get_published_files()
 
-        # Process version that attached to this delivery first
+        # Process versions frames first
         for v in delivery_versions:
+
+            # This path are relative to the platform
+            # from which they were published
+            # We need to make it relative to the current platform project path
             path_to_frames = v.get('sg_path_to_frames')
+
             # Check if this version have path to frames
-            if path_to_frames is not None:
-                asset = asset_from_path(path_to_frames)
-                delivery_assets.append(asset)
-            else:
-                log.warning('%s version has not frames attached' % v['code'])
+            if path_to_frames is None:
+                log.warning('%s version has no frames attached' % v['code'])
                 continue
+
+            path_to_asset = self._normalize_path(path_to_frames)
+
+            if path_to_asset in delivery_paths:
+                continue
+
+            asset = asset_from_path(path_to_asset)
+            asset.sg_data = v
+            delivery_assets.append(asset)
+            delivery_paths.append(path_to_asset)
+
+        # Process versions mov
+        for v in delivery_versions:
+            path_to_movies = v.get('sg_path_to_movie')
+            # Append Version attached mov file to asset list
+            if path_to_movies is None:
+                log.warning('%s version has no mov attached' % v['code'])
+                continue
+
+            path_to_asset = self._normalize_path(path_to_movies)
+
+            if path_to_asset in delivery_paths:
+                continue
+
+            asset = asset_from_path(path_to_asset)
+            asset.sg_data = v
+            delivery_assets.append(asset)
+            delivery_paths.append(path_to_asset)
 
         # Process Published Files that attached to this delivery
         for p in delivery_publihes:
+
             ppath = p.get('path', {})
 
             if ppath:
@@ -138,24 +197,40 @@ class Delivery(object):
                 log.warning('%s published file does not have any path attached' % p['code'])
                 continue
 
-            if local_path:
-                asset = asset_from_path(local_path)
-                delivery_assets.append(asset)
-            else:
+            if not local_path:
                 log.warning('Local path is empty for %s' % v['code'])
                 continue
+
+            if local_path in delivery_paths:
+                continue
+
+            asset = asset_from_path(local_path)
+            asset.sg_data = p
+            delivery_assets.append(asset)
+            delivery_paths.append(local_path)
 
         return delivery_assets
 
 
 class Consolidator(object):
 
-    def __init__(self, app, sg_delivery):
+    def __init__(self, app, sg_delivery, options):
 
         self._app = app
         self.sg = self._app.shotgun
         self.tk = self._app.tank
         self.sg_delivery = sg_delivery
+        self.opt = options
+
+        if self.opt.sg_type_filter is not None:
+            self.sg_type_filter = self.opt.sg_type_filter
+        else:
+            self.sg_type_filter = []
+
+        if self.opt.extension_filter is not None:
+            self.ext_filter = self.opt.extension_filter
+        else:
+            self.ext_filter = []
 
     def _find_sequence_range(self, path):
         """
@@ -200,7 +275,7 @@ class Consolidator(object):
 
     def run(self):
 
-        log.debug('Running the consolidator for Delivery id ', self.sg_delivery.id)
+        log.info('Consolidating ', self.sg_delivery.title)
 
         # Get all delivery types listed in the project configuration
         delivery_types = self._app.get_setting("delivery_types", [])
@@ -217,6 +292,20 @@ class Consolidator(object):
         delivery_due_date = self.sg_delivery.get_field('sg_due_date')
         due_year, due_month, due_day = [int(i) for i in delivery_due_date.split('-')]
 
+        # Asset filtering logic
+        filtered_assets = []
+        for asset in delivery_assets:
+            # Exclude asset by its shotgun file type specified in the filter
+            if asset.sg_data['type'] in self.sg_type_filter:
+                continue
+            # Exclude asset that match the ext_filter extensions
+            if asset.extension in self.ext_filter:
+                continue
+            filtered_assets.append(asset)
+        delivery_assets = filtered_assets
+        
+        import pdb; pdb.set_trace()
+
         for asset in delivery_assets:
             # Check if any of the existing template can be applied to this path
             source_template = self.tk.template_from_path(str(asset.path))
@@ -225,6 +314,7 @@ class Consolidator(object):
 
             # Added extra fields that might be required by the template
             fields.update({
+                'delivery_title': self.sg_delivery.title,
                 'height': asset.height,
                 'width': asset.width,
                 'YYYY': due_year,
@@ -239,8 +329,7 @@ class Consolidator(object):
 
             # Get our final delivery template base on the asset type
             if asset.type == 'ImageSequence':
-
-                if step == 'matte': # Use separate template for mattes
+                if 'output' in fields:
                     delivery_template_name = delivery_settings['matte_delivery_template']
                 else:
                     delivery_template_name = delivery_settings['dpx_delivery_template']
@@ -257,6 +346,14 @@ class Consolidator(object):
                     'Failed to retrieve value for the template name: %s'
                     % delivery_template_name
                 )
+
+            # Before passing this fields to the path constructor
+            # run a user definded hook to do custom manipulations with the fields
+            # This allows for custom per delivery type name customization
+            fields = self._app.execute_hook_method(
+                'hook_customize_fields', 'execute',
+                fields=fields, delivery=self.sg_delivery
+            )
 
             # Build the new path base on the delivery template
             delivery_path = delivery_template.apply_fields(fields)
@@ -288,6 +385,16 @@ def parse_arguments(args):
         help='run in ui mode',
     )
 
+    parser.add_argument(
+        '-sg_type_filter', '-stf', nargs='+',
+        help='exclude assets from processing by its shotgun entity type',
+    )
+
+    parser.add_argument(
+        '-extension_filter', '-ef', nargs='+',
+        help='exclude assets from processing by its extension',
+    )
+
     args = parser.parse_args(args=args)
 
     return args
@@ -303,5 +410,5 @@ def run(app, *args):
     # Create Delivery object that represent a single delivery item on SG
     sg_delivery = Delivery(app.shotgun, app_args.id)
 
-    c = Consolidator(app, sg_delivery)
+    c = Consolidator(app, sg_delivery, app_args)
     c.run()

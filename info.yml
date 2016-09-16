@@ -12,6 +12,11 @@
 
 # expected fields in the configuration file for this engine
 configuration:
+  hook_customize_fields:
+    type: hook
+    parameters: []
+    default_value: "customize_fields"
+    description: Execute custom functions before building the delivery path out of template keys
 
 # this app works in all engines - it does not contain
 # any host application specific commands
