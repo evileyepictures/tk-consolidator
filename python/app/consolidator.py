@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import argparse
 from logger import Logger
@@ -494,21 +495,29 @@ class Consolidator(object):
 def parse_arguments(args):
 
     parser = argparse.ArgumentParser(
-        description="App to export data for client delivery"
+        description="command line application that prepare production assets for delivery"
     )
     parser.add_argument(
         '-id',
         required=True,
-        help='run in ui mode',
+        help='shotgun delivery id',
     )
     parser.add_argument(
-        '-sg_type_filter', '-stf', nargs='+',
+        '-stf', nargs='+', metavar='TYPE', dest='sg_type_filter',
         help='exclude assets from processing by its shotgun entity type',
     )
     parser.add_argument(
-        '-extension_filter', '-ef', nargs='+',
+        '-ef', nargs='+',  metavar='EXT', dest='extension_filter',
         help='exclude assets from processing by its extension',
     )
+
+    # No arguments provided
+    # Print help and exit
+    if len(sys.argv) == 2:
+        print  # Empty line
+        parser.print_help()
+        print  # Empty line
+        exit(0)
 
     args = parser.parse_args(args=args)
 
