@@ -367,7 +367,7 @@ class Consolidator(object):
         """
         try:
             fin_ver_code = asset.extra_attrs['final_version']['code']
-        except KeyError as e:
+        except Exception as e:
             log.warning(
                 'Failed to retrive eep final version from asset %s. %s'
                 % (asset.name, e)
