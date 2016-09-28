@@ -100,6 +100,8 @@ class Delivery(object):
         conf = self._app.tank.pipeline_configuration
         project_name = conf.get_project_disk_name()
 
+        path = path.replace('\\', '/')
+
         # XXX: _roots is the private method, I should not really use it
         # However the alternative would be to read the roots yaml manualy
         for os_name, root in conf._roots['primary'].items():
@@ -107,7 +109,7 @@ class Delivery(object):
             proj_root = proj_root.replace('\\', '/')
             path = path.replace(proj_root, self._app.tank.project_path)
 
-        path = os.path.abspath(path)
+        path = os.path.normpath(path)
 
         return path
 
@@ -230,7 +232,12 @@ class Delivery(object):
             if path_to_asset in delivery_paths:
                 continue
 
-            asset = asset_from_path(path_to_asset)
+            try:
+                asset = asset_from_path(path_to_asset)
+            except Exception as e:
+                import pdb; pdb.set_trace()
+                log.error('Can not create asset from path %s. %s' % (path_to_asset, e))
+                raise
 
             fin_version = self.all_finaled_versions.get(v['entity']['id'])
             asset.extra_attrs['final_version'] = fin_version
