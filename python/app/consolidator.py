@@ -7,8 +7,12 @@ from asset import asset_from_path
 from tank.errors import TankError
 import sgtk
 
-log = Logger()
+debug = os.environ.get('DRY_RUN', False)
 
+if debug:
+    log = Logger(debug=True)
+else:
+    log = Logger(debug=False)
 
 class Delivery(object):
     """
@@ -376,8 +380,8 @@ class Consolidator(object):
         try:
             fin_ver_code = asset.extra_attrs['final_version']['code']
         except Exception as e:
-            log.warning(
-                'Failed to retrive eep final version from asset %s. %s'
+            log.debug(
+                'Failed to retrieve eep final version from asset %s. %s'
                 % (asset.name, e)
             )
             return int(asset.version)
@@ -426,6 +430,14 @@ class Consolidator(object):
 
             # Check if any of the existing template can be applied to this path
             source_template = self.tk.template_from_path(str(asset.path))
+
+            if source_template is None:
+                log.warning(
+                    'File %s does not match any existing path templates'
+                    % asset.path
+                )
+                continue
+
             # Extract fields from current path
             fields = source_template.get_fields(str(asset.path))
 
@@ -456,6 +468,9 @@ class Consolidator(object):
 
             elif asset.type == 'VideoFile':
                 dl_template_name = dl_settings['mov_delivery_template']
+            elif asset.type == 'LocalFile':
+                dl_template_name = dl_settings['img_delivery_template']
+                fields.update({'img_ext': asset.extension})
             else:
                 log.error('Asset type %s is not supported!' % asset.type)
 
@@ -475,6 +490,10 @@ class Consolidator(object):
                 fields=fields, delivery=self.sg_delivery
             )
 
+            asset_name = fields.get('Asset', False)
+            if asset_name:
+                fields.update({'Shot': asset_name})
+
             # Build the new path base on the delivery template
             delivery_path = dl_template.apply_fields(fields)
 
@@ -490,8 +509,11 @@ class Consolidator(object):
                     % (asset.name, asset.extension, dest_ext))
                 continue
 
-            # Copy asset to delivery location
-            asset.copy(delivery_path)
+            if debug:
+                asset.copy(delivery_path, dry_run=True)
+            else:
+                # Copy asset to delivery location
+                asset.copy(delivery_path)
 
         log.success(
             'Consolidation of "%s" delivery completed'
