@@ -14,6 +14,7 @@ if debug:
 else:
     log = Logger(debug=False)
 
+
 class Delivery(object):
     """
     This class represent Shotgun Delivery entity. It provide access to most
@@ -468,7 +469,7 @@ class Consolidator(object):
 
             elif asset.type == 'VideoFile':
                 dl_template_name = dl_settings['mov_delivery_template']
-            elif asset.type == 'LocalFile':
+            elif asset.type == 'ImageFile':
                 dl_template_name = dl_settings['img_delivery_template']
                 fields.update({'img_ext': asset.extension})
             else:
@@ -490,6 +491,9 @@ class Consolidator(object):
                 fields=fields, delivery=self.sg_delivery
             )
 
+            # HACK(Kirill): This is a hacky way to handle assets
+            # In order to handle it "Shotgun" way we need to create
+            # separate path templates for asset and shots
             asset_name = fields.get('Asset', False)
             if asset_name:
                 fields.update({'Shot': asset_name})
