@@ -96,11 +96,12 @@ class Delivery(object):
 
     def _normalize_path(self, path):
         """
-        Because Shotgun Versions can only store OS specific paths to files
-        we need to make sure that those path are converted.
-        For example if current OS is Mac but the Version was created
-        on Windows the file path will be Windows specific. This function make
-        sure that the path is converted to the current OS.
+        This function make sure that the path is converted to the current OS format
+
+        Because Shotgun Versions entity can only store OS specific paths to files
+        we need to make sure that those paths were converted.
+        For example if the current OS is Mac but the Version was created
+        on Windows the file path will be Windows specific which will case an error
         """
         conf = self._app.tank.pipeline_configuration
         project_name = conf.get_project_disk_name()
@@ -108,7 +109,7 @@ class Delivery(object):
         path = path.replace('\\', '/')
 
         # XXX: _roots is the private method, I should not really use it
-        # However the alternative would be to read the roots yaml manualy
+        # However the alternative would be to read the roots yaml manually
         for os_name, root in conf._roots['primary'].items():
             proj_root = os.path.join(root, project_name)
             proj_root = proj_root.replace('\\', '/')
@@ -120,9 +121,9 @@ class Delivery(object):
 
     def get_field(self, field_name):
         """
-        Utility methond to get a value of SG field of this delivery
+        Utility method to get a value of SG field of this delivery
         Note: this only works with pre cached values by this class.
-        If you need to etend this list adde your value to self.sg_fields that
+        If you need to extend this list add your value to self.sg_fields
         it will make it available via this method without making a call to SG
         """
         data = self.sg_data.get(field_name)
@@ -240,7 +241,6 @@ class Delivery(object):
             try:
                 asset = asset_from_path(path_to_asset)
             except Exception as e:
-                import pdb; pdb.set_trace()
                 log.error('Can not create asset from path %s. %s' % (path_to_asset, e))
                 raise
 
@@ -308,11 +308,33 @@ class Delivery(object):
 
 class Consolidator(object):
     """
-    This is main application class. It should not include any logic that deal
+    This is main application class. It responsible for hight level logic such as
+
+        - Copy assets that attached to selected Shotgun delivery
+        - Renaming assets according to predefine name template
+        - Providing other interfaces for filtering assets and QA
+
+    Note: It should not include any logic that deal
     with shotgun api or make any calls to SG site
+
+    Usage:
+
+        To run consolidator on Shotgun delivery entity with id 12:
+            >>> tank consolidator -id 12
+
+        You can filter out copied file base on the file extension:
+            >>> tank consolidator -id 12 -ef mov
+
+        You can also filter out base on Shotgun entity type:
+            >>> tank consolidator -id 12 -stf PublishedFile
     """
 
     def __init__(self, app, sg_delivery, options):
+        """
+        :param app: Shotgun Toolkit application instance
+        :param sg_delivery: Delivery object that consolidator run for
+        :param options: Options dictionary that come from command line or UI
+        """
 
         self._app = app
         self.sg = self._app.shotgun
@@ -326,7 +348,8 @@ class Consolidator(object):
             self.sg_type_filter = []
 
         if self.opt.extension_filter is not None:
-            self.ext_filter = self.opt.extension_filter
+            # All file extension filters should be lowercase
+            self.ext_filter = [i.lower() for i in self.opt.extension_filter]
         else:
             self.ext_filter = []
 
@@ -373,8 +396,8 @@ class Consolidator(object):
 
     def get_final_version(self, asset):
         """
-        According to EEP bussines logic the final delivery version should
-        always mathch the version that has the status 'eepfin' on Shotgun.
+        According to EEP business logic the final delivery version should
+        always match the version that has the status 'eepfin' on Shotgun.
         If this function failed to acquire the final version it will fall back
         to the asset version.
         """
@@ -422,7 +445,7 @@ class Consolidator(object):
             if asset.sg_data['type'] in self.sg_type_filter:
                 continue
             # Exclude asset that match the ext_filter extensions
-            if asset.extension in self.ext_filter:
+            if asset.extension.lower() in self.ext_filter:
                 continue
             filtered_assets.append(asset)
         dl_assets = filtered_assets
