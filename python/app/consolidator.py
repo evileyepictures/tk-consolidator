@@ -2,17 +2,22 @@ import os
 import sys
 import re
 import argparse
-from logger import Logger
+import logging
+import sgtk
+
+import asset
 from asset import asset_from_path
 from tank.errors import TankError
-import sgtk
 
 debug = os.environ.get('DRY_RUN', False)
 
+# Get logger for the current app namespace
+log = logging.getLogger('tank.setup_project.consolidator')
 if debug:
-    log = Logger(debug=True)
-else:
-    log = Logger(debug=False)
+    log.setLevel(logging.DEBUG)
+# Pass this logger to the parent asset module
+# that it can log with the same handlers and formatting
+asset.set_logger(log)
 
 
 class Delivery(object):
