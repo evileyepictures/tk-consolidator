@@ -459,7 +459,7 @@ class Consolidator(object):
         Then app run in cmd mode this function gets run
         """
 
-        log.info('Consolidating ', self.sg_delivery.title)
+        log.info('Consolidating %s' % self.sg_delivery.title)
 
         # Get all delivery types listed in the project configuration
         dl_types = self._app.get_setting("delivery_types", [])
@@ -580,7 +580,7 @@ class Consolidator(object):
                 # Copy asset to delivery location
                 asset.copy(delivery_path)
 
-        log.success(
+        log.info(
             'Consolidation of "%s" delivery completed'
             % self.sg_delivery.title
         )
