@@ -394,6 +394,32 @@ class Consolidator(object):
         # return the range
         return (min(frames), max(frames))
 
+    def version_from_name(self, name):
+        """
+        Try to determine file version from its name base on different regex patterns
+
+        :returns: None or integer
+        """
+        version_patterns = [
+            '([vV])(?P<version_number>[0-9]+)',  # v001, V00001
+            '([A-Za-z]+)_(?P<version_number>[0-9]+)'  # name_01
+        ]
+
+        # Return firs matched pattern in self.version_patterns list
+        for p in version_patterns:
+            result = re.finditer(p, name)
+            if result is not None:
+                # log.debug('Regex version result: %s', result.group('version_number'))
+                version = None
+                # We alway want to use version found at the and of the name
+                # e.g. for name like 'rvb300_match_30mlCamZv03_v006.fbx' we should return 6 not 3
+                for v in result:
+                    version = int(v.group('version_number'))
+
+                return version
+
+        return None
+
     def get_final_version(self, asset):
         """
         According to EEP business logic the final delivery version should
@@ -410,11 +436,18 @@ class Consolidator(object):
             )
             return int(asset.version)
 
-        result = re.search(r'(v)([0-9]+)', fin_ver_code)
-        if result:
-            return int(result.groups()[1])
-        else:
+        version_number = self.version_from_name(fin_ver_code)
+
+        if version_number is None:
             return int(asset.version)
+        else:
+            return version_number
+
+        # result = re.search(r'(v)([0-9]+)', fin_ver_code)
+        # if result:
+        #     return int(result.groups()[1])
+        # else:
+        #     return int(asset.version)
 
     def run(self):
         """
