@@ -462,7 +462,7 @@ class Consolidator(object):
         log.info('Consolidating %s' % self.sg_delivery.title)
 
         # Get all delivery types listed in the project configuration
-        dl_types = self._app.get_setting("delivery_types", [])
+        dl_types = self._app.get_setting('delivery_types', [])
 
         # Get configuration for the delivery type
         dl_settings = {}
@@ -488,7 +488,12 @@ class Consolidator(object):
             filtered_assets.append(asset)
         dl_assets = filtered_assets
 
+        asset_completed = []  # Hold asset that have been successfuly consolidated
+
         for asset in dl_assets:
+
+            log.info('-'*79)
+            log.info('Consolidating %s' % asset.name)
 
             # Check if any of the existing template can be applied to this path
             source_template = self.tk.template_from_path(str(asset.path))
@@ -523,10 +528,23 @@ class Consolidator(object):
 
             # Get our final delivery template base on the asset type
             if asset.type == 'ImageSequence':
+                
                 if 'output' in fields:
                     dl_template_name = dl_settings['matte_delivery_template']
                 else:
                     dl_template_name = dl_settings['dpx_delivery_template']
+
+                seq_width = dl_settings.get('sequence_width', False)
+                seq_height = dl_settings.get('sequence_height', False)
+
+                # Check resolution
+                if seq_width and seq_height:
+                    if seq_width != fields['width'] or seq_height != fields['height']:
+                        if self.opt.force:
+                            log.warning('Sequence resolution doesn not match %sx%s' % (seq_width, seq_height))
+                        else:
+                            log.error('Skipping. Sequence resolution doesn not match %sx%s' % (seq_width, seq_height))
+                            continue
 
             elif asset.type == 'VideoFile':
                 dl_template_name = dl_settings['mov_delivery_template']
@@ -535,6 +553,7 @@ class Consolidator(object):
                 fields.update({'img_ext': asset.extension})
             else:
                 log.error('Asset type %s is not supported!' % asset.type)
+                continue
 
             dl_template = self._app.get_template_by_name(dl_template_name)
 
@@ -580,10 +599,27 @@ class Consolidator(object):
                 # Copy asset to delivery location
                 asset.copy(delivery_path)
 
-        log.info(
-            'Consolidation of "%s" delivery completed'
-            % self.sg_delivery.title
-        )
+            asset_completed.append(asset)
+
+        asset_not_completed = list(set(dl_assets) - set(asset_completed))
+
+        print ''
+
+        if len(asset_completed) < len(dl_assets):
+            print 'WARNIGN! The following assets was not consolidated:'
+            for i, asset in enumerate(asset_not_completed):
+                print ''
+                print '    %s. %s' % (i+1, asset.name)
+            print ''          
+            print (
+              'Please review your consolidation log. '
+              'You can force consolidation of this assets by running consolidator with -f flag.'
+            )
+        else:
+            print (
+                'All assets have been consolidated for "%s" delivery. Yay! :)'
+                % self.sg_delivery.title
+            )
 
 
 def parse_arguments(args):
@@ -604,6 +640,8 @@ def parse_arguments(args):
         '-ef', nargs='+',  metavar='EXT', dest='extension_filter',
         help='exclude assets from processing by its extension',
     )
+
+    parser.add_argument('--force', '-f', help='force consolidation for assets with warnings', action='store_true')
 
     # No arguments provided
     # Print help and exit
