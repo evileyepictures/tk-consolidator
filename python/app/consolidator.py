@@ -606,7 +606,7 @@ class Consolidator(object):
         print ''
 
         if len(asset_completed) < len(dl_assets):
-            print 'WARNIGN! The following assets was not consolidated:'
+            print 'WARNING! The following assets were not consolidated:'
             for i, asset in enumerate(asset_not_completed):
                 print ''
                 print '    %s. %s' % (i+1, asset.name)
