@@ -23,7 +23,7 @@ asset.set_logger(log)
 class Delivery(object):
     """
     This class represent Shotgun Delivery entity. It provide access to most
-    common attribute as well as cache data to this class member variables
+    common attribute as well as cache shotgun site data to this class member variables
     for faster access
     """
 
@@ -33,6 +33,8 @@ class Delivery(object):
         self._app = sgtk.platform.current_bundle()
         self.sg = sg_instance
         self.sg_entity_type = 'Delivery'
+        status = self._app.get_setting('delivery_status', [])
+        # status = 'eepfin'
 
         # Delivery fields that will be fetched from Shotgun
         self.sg_fields = [
@@ -46,7 +48,7 @@ class Delivery(object):
         self.id = int(sg_id)
         self.sg_data = self._get_data()
 
-        self.all_finaled_versions = self._get_all_finaled_versions()
+        self.all_delivery_versions = self._get_versions_by_status(status)
 
         self.__versions = []
         self.__published_files = []
@@ -67,7 +69,7 @@ class Delivery(object):
 
         return sg_delivery
 
-    def _get_all_finaled_versions(self):
+    def _get_versions_by_status(self, status):
         """
         Get all versions that have final_status value in the status field
 
@@ -82,10 +84,9 @@ class Delivery(object):
                 2341: ...
             }
         """
-        final_status = 'eepfin'
         filters = [
             ['project', 'is', self._app.context.project],
-            ['sg_status_list', 'is', final_status]
+            ['sg_status_list', 'is', status]
         ]
         fields = ['code', 'sg_status_list', 'entity']
         versions = self.sg.find('Version', filters, fields)
@@ -249,7 +250,7 @@ class Delivery(object):
                 log.error('Can not create asset from path %s. %s' % (path_to_asset, e))
                 raise
 
-            fin_version = self.all_finaled_versions.get(v['entity']['id'])
+            fin_version = self.all_delivery_versions.get(v['entity']['id'])
             asset.extra_attrs['final_version'] = fin_version
 
             asset.sg_data = v
@@ -271,7 +272,7 @@ class Delivery(object):
 
             asset = asset_from_path(path_to_asset)
 
-            fin_version = self.all_finaled_versions.get(v['entity']['id'])
+            fin_version = self.all_delivery_versions.get(v['entity']['id'])
             asset.extra_attrs['final_version'] = fin_version
 
             asset.sg_data = v
@@ -301,7 +302,7 @@ class Delivery(object):
 
             asset = asset_from_path(local_path)
 
-            fin_version = self.all_finaled_versions.get(v['entity']['id'])
+            fin_version = self.all_delivery_versions.get(v['entity']['id'])
             asset.extra_attrs['final_version'] = fin_version
 
             asset.sg_data = p
@@ -428,7 +429,8 @@ class Consolidator(object):
     def get_final_version(self, asset):
         """
         According to EEP business logic the final delivery version should
-        always match the version that has the status 'eepfin' on Shotgun.
+        always match the version that has "delivery_status" on Shotgun.
+        "delivery_status" is defined in project configuration yaml file.
         If this function failed to acquire the final version it will fall back
         to the asset version.
         """
@@ -601,8 +603,10 @@ class Consolidator(object):
 
             asset_completed.append(asset)
 
+        # Output final summary log for the user
+        # 
         asset_not_completed = list(set(dl_assets) - set(asset_completed))
-
+        
         print ''
 
         if len(asset_completed) < len(dl_assets):
@@ -613,7 +617,7 @@ class Consolidator(object):
             print ''          
             print (
               'Please review your consolidation log. '
-              'You can force consolidation of this assets by running consolidator with -f flag.'
+              'You might be able to force consolidation of this assets by running consolidator with -f flag.'
             )
         else:
             print (
